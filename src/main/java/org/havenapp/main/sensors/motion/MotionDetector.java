@@ -16,6 +16,7 @@ import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.os.Handler;
 
+import org.havenapp.main.DataSpotA;
 import org.havenapp.main.sensors.media.ImageCodec;
 
 import java.io.ByteArrayOutputStream;
@@ -66,10 +67,13 @@ public class MotionDetector {
 		detector.setThreshold(motionSensitivity);
 	}
 
+
 	public void detect(byte[] rawOldPic,
                        byte[] rawNewPic,
                        int width,
                        int height) {
+
+		final int onFrame = DataSpotA.detectCalledCount++;
 
 		int[] newPicLuma = ImageCodec.N21toLuma(rawNewPic, width, height);
 
@@ -108,31 +112,29 @@ public class MotionDetector {
                 newPic = null;
                 */
 
-                Bitmap rawBitmap = convertImage(rawNewPic,width,height);
+                Bitmap rawBitmap = convertImage(rawNewPic, width, height);
 
                 int percChanged = (int)((((float)changedPixels.size()) / ((float)newPicLuma.length))*100);
 
-                for (MotionListener listener : listeners) {
-                    listener.onProcess(
-							percChanged,
-                            rawBitmap,
-                            true);
-                }
+				notifyMotionListners(percChanged, rawBitmap, true);
 			}
 			else
             {
-                for (MotionListener listener : listeners) {
-                    listener.onProcess(
-                            0,
-                            null,
-                            false);
-                }
-
+				DataSpotA.motionDetectChangedPixelsNullCount++;
+				notifyMotionListners(0, null, false);
             }
 
 		}
+	}
 
 
+	public void notifyMotionListners(int percentChanged, final Bitmap imageBitmap, boolean motionDetected) {
+		for (MotionListener listener : listeners) {
+			listener.onProcess(
+					percentChanged,
+					imageBitmap,
+					motionDetected);
+		}
 	}
 
 	public static Bitmap convertImage (byte[] nv21bytearray, int width, int height)
