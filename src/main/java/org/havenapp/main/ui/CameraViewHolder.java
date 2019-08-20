@@ -32,6 +32,7 @@ import com.otaliastudios.cameraview.FrameProcessor;
 import com.otaliastudios.cameraview.Size;
 import com.otaliastudios.cameraview.SizeSelector;
 
+import org.havenapp.main.DataSpotA;
 import org.havenapp.main.PreferenceManager;
 import org.havenapp.main.Utils;
 import org.havenapp.main.model.EventTrigger;
@@ -236,18 +237,29 @@ public class CameraViewHolder {
             public void process(@NonNull Frame frame) {
 
                 long now = System.currentTimeMillis();
-                if (now < CameraViewHolder.this.lastTimestamp + DETECTION_INTERVAL_MS)
+                if (now < CameraViewHolder.this.lastTimestamp + DETECTION_INTERVAL_MS) {
+                    DataSpotA.processFrameTimeSkipCount++;
                     return;
+                }
+
+                // Capture the undderlying data before new incoming frame destroys it.
+                // Alternate technique would be to use frame.freeze()
+                final byte[] frameData = frame.getData();
+                final Size frameSize = frame.getSize();
+                if (frameData == null) {
+                    DataSpotA.processFrameDataNullCount++;
+                    return;
+                } else if (frameSize == null) {
+                    DataSpotA.processFrameSizeNullCount++;
+                    return;
+                }
 
                 CameraViewHolder.this.lastTimestamp = now;
 
-                if (frame.getData() != null && frame.getSize() != null) {
-
-                    if (!doingVideoProcessing) {
-                        mDecodeThreadPool.execute(() -> processNewFrame(frame));
-                    } else {
-                        mEncodeVideoThreadPool.execute(() -> recordNewFrame(frame));
-                    }
+                if (!doingVideoProcessing) {
+                    mDecodeThreadPool.execute(() -> processNewFrameData(frameData, frameSize));
+                } else {
+                    mEncodeVideoThreadPool.execute(() -> recordNewFrame(frame));
                 }
             }
         });
@@ -360,6 +372,20 @@ public class CameraViewHolder {
 
             lastPic = data;
         }
+    }
+
+
+    private void processNewFrameData(final byte[] data, final Size size) {
+        int width = size.getWidth();
+        int height = size.getHeight();
+
+        motionDetector.detect(
+                lastPic,
+                data,
+                width,
+                height);
+
+        lastPic = data;
     }
 
 
