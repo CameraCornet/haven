@@ -38,6 +38,7 @@ import org.havenapp.main.Utils;
 import org.havenapp.main.model.EventTrigger;
 import org.havenapp.main.sensors.motion.LuminanceMotionDetector;
 import org.havenapp.main.sensors.motion.MotionDetector;
+import org.havenapp.main.sensors.motion.MotionDetectorAnnotated;
 import org.havenapp.main.service.MonitorService;
 import org.jcodec.api.android.AndroidSequenceEncoder;
 
@@ -66,7 +67,9 @@ public class CameraViewHolder {
     private final static int DETECTION_INTERVAL_MS = 200;
     private final static int MAX_CAMERA_WIDTH = 800;
 
+    public int motionDetectorEngine = 2;
     private List<MotionDetector.MotionListener> listeners = new ArrayList<>();
+    private List<MotionDetectorAnnotated.MotionListener> motionDetectionAnnotatedListeners = new ArrayList<>();
 
     /**
      * Timestamp of the last picture processed
@@ -104,6 +107,7 @@ public class CameraViewHolder {
 	//private Camera camera;
 	private Activity context;
 	private MotionDetector motionDetector;
+	private MotionDetectorAnnotated motionDetectorAnnotated;
 
     AndroidSequenceEncoder encoder;
     private File videoFile;
@@ -134,19 +138,72 @@ public class CameraViewHolder {
 
 		prefs = new PreferenceManager(context);
 
-        motionDetector = new MotionDetector(
-                motionSensitivity);
+		switch (motionDetectorEngine) {
+            case 1:
+                motionDetector = new MotionDetector(motionSensitivity);
 
-        motionDetector.addListener((detectedImage, rawBitmap, motionDetected) -> {
+                motionDetector.addListener((detectedImage, rawBitmap, motionDetected) -> {
 
-            for (MotionDetector.MotionListener listener : listeners)
-                listener.onProcess(detectedImage,rawBitmap,motionDetected);
+                    for (MotionDetector.MotionListener listener : listeners)
+                        listener.onProcess(detectedImage,rawBitmap,motionDetected);
 
-            if (motionDetected)
-                mEncodeVideoThreadPool.execute(() -> saveDetectedImage(rawBitmap));
+                    if (motionDetected)
+                        mEncodeVideoThreadPool.execute(() -> saveDetectedImage(rawBitmap));
 
-        });
-	/*
+                });
+    		    break;
+            case 2:
+                motionDetectorAnnotated = new MotionDetectorAnnotated(updateHandler, motionSensitivity);
+
+                motionDetectorAnnotated.addListener((sourceImage, detectedImage, rawBitmap, motionDetected) -> {
+
+                    for (MotionDetectorAnnotated.MotionListener listener : motionDetectionAnnotatedListeners)
+                        listener.onProcess(sourceImage,detectedImage,rawBitmap,motionDetected);
+
+                    if (motionDetected) {
+
+                        if (serviceMessenger != null) {
+                            Message message = new Message();
+                            message.what = EventTrigger.CAMERA;
+
+                            try {
+
+                                File fileImageDir = new File(Environment.getExternalStorageDirectory(), prefs.getDefaultMediaStoragePath());
+                                fileImageDir.mkdirs();
+
+                                String ts = new SimpleDateFormat(Utils.DATE_TIME_PATTERN,
+                                        Locale.getDefault()).format(new Date());
+
+                                File fileImage = new File(fileImageDir, ts.concat(".detected.original.jpg"));
+                                FileOutputStream stream = new FileOutputStream(fileImage);
+                                rawBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+
+                                stream.flush();
+                                stream.close();
+                                message.getData().putString("path", fileImage.getAbsolutePath());
+
+                                //store the still match frame, even if doing video
+                                serviceMessenger.send(message);
+
+                                if (prefs.getVideoMonitoringActive() && (!doingVideoProcessing)) {
+                                    recordVideo();
+
+                                }
+
+                            } catch (Exception e) {
+                                // Cannot happen
+                                Log.e("CameraViewHolder", "error creating image", e);
+                            }
+                        }
+                    }
+
+
+                });
+
+                break;
+        }
+
+	    /*
 		 * We bind to the alert service
 		 */
         this.context.bindService(new Intent(context,
@@ -190,20 +247,29 @@ public class CameraViewHolder {
         }
     }
 
-	public void setMotionSensitivity (int
-				motionSensitivity )
-				{
-				this.
-				motionSensitivity = motionSensitivity;
-                    motionDetector.setMotionSensitivity(motionSensitivity);
+	public void setMotionSensitivity (int motionSensitivity) {
+        this.motionSensitivity = motionSensitivity;
+
+        switch (motionDetectorEngine) {
+            case 1:
+                motionDetector.setMotionSensitivity(motionSensitivity);
+                break;
+            case 2:
+                motionDetectorAnnotated.setMotionSensitivity(motionSensitivity);
+                break;
+        }
 	}
 	
 	public void addListener(MotionDetector.MotionListener listener) {
 		listeners.add(listener);
 	}
-	
 
-	/**
+    public void addMotionDetectorAnnotatedListener(MotionDetectorAnnotated.MotionListener listener) {
+        motionDetectionAnnotatedListeners.add(listener);
+    }
+
+
+    /**
 	 * Called on the creation of the surface:
 	 * setting camera parameters to lower possible resolution
 	 * (preferred is 640x480)
@@ -375,21 +441,45 @@ public class CameraViewHolder {
     }
 
 
+
     private void processNewFrameData(final byte[] data, final Size size) {
         int width = size.getWidth();
         int height = size.getHeight();
 
-        motionDetector.detect(
-                lastPic,
-                data,
-                width,
-                height);
+        switch (motionDetectorEngine) {
+            case 1:
+                motionDetector.detect(
+                        lastPic,
+                        data,
+                        width,
+                        height);
+                break;
+            case 2:
+                processNewFrame(data, size.getWidth(), size.getHeight(), 0);
+                break;
+        }
 
         lastPic = data;
     }
 
+    // MotionDetectorAnnotated
+    private synchronized void processNewFrame (byte[] data, int width, int height, int rotationDegrees)
+    {
+        motionDetectorAnnotated.detect(
+                lastPic,
+                data,
+                width,
+                height,
+                rotationDegrees,
+                cameraView.getFacing()==Facing.FRONT);
 
-	private synchronized boolean recordVideo() {
+        // lastPic = data;
+
+    }
+
+
+
+    private synchronized boolean recordVideo() {
 
 	    if (doingVideoProcessing)
 	        return false;

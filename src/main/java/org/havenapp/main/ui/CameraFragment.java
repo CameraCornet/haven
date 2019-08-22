@@ -105,18 +105,41 @@ public final class CameraFragment extends Fragment {
             if (cameraViewHolder == null) {
                 cameraViewHolder = new CameraViewHolder(getActivity(), cameraView);
 
-                cameraViewHolder.addListener((percChanged, rawBitmap, motionDetected) -> {
+                switch (cameraViewHolder.motionDetectorEngine) {
+                    case 1:
+                        cameraViewHolder.addListener((percChanged, rawBitmap, motionDetected) -> {
 
-                    if (!isDetached()) {
-                        Intent iEvent = new Intent("event");
-                        iEvent.putExtra("type", EventTrigger.CAMERA);
-                        iEvent.putExtra("detected",motionDetected);
-                        iEvent.putExtra("changed",percChanged);
+                            if (!isDetached()) {
+                                Intent iEvent = new Intent("event");
+                                iEvent.putExtra("type", EventTrigger.CAMERA);
+                                iEvent.putExtra("detected", motionDetected);
+                                iEvent.putExtra("changed", percChanged);
 
-                        LocalBroadcastManager.getInstance(getActivity()).sendBroadcast(iEvent);
-                    }
+                                LocalBroadcastManager.getInstance(getActivity()).sendBroadcast(iEvent);
+                            }
 
-                });
+                        });
+                        break;
+                    case 2:
+                        cameraViewHolder.addMotionDetectorAnnotatedListener((oldBitmap, newBitmap, rawBitmap, motionDetected) -> {
+                            if (motionDetected)
+                                newImage.setImageBitmap(newBitmap);
+                            else
+                                newImage.setImageResource(R.drawable.blankimage);
+
+                            /*
+                            if (txtCameraStatus != null) {
+                                if (cameraViewHolder.doingVideoProcessing()) {
+                                    txtCameraStatus.setText("Recording...");
+                                } else {
+                                    txtCameraStatus.setText("");
+                                }
+                            }
+                             */
+
+                        });
+                        break;
+                }
             }
 
         }
